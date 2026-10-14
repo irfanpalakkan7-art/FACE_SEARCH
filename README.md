@@ -1,9 +1,13 @@
 # AI Webcam Detector
 
-A computer-vision demo with a clean browser dashboard. Run it locally for
-on-device inference, or host its Python API separately and connect the static
-GitHub Pages frontend. In hosted mode, webcam frames are sent to the configured
-Python service for inference.
+A computer-vision demo with a clean browser dashboard and an optional local
+Python application. The GitHub Pages site runs its face and object detection
+models directly in the browser, without a Python or cloud inference server.
+
+The GitHub Pages site runs MediaPipe face and object detection directly in the
+visitor's browser. It does not need the Python API or a Hugging Face Space, and
+camera frames are not uploaded. The first browser session downloads the AI
+library and models from jsDelivr and Google-hosted model assets.
 
 ## What it can do
 
@@ -162,67 +166,35 @@ Check that this project folder and its `logs` and `screenshots` subfolders are
 writable. The web interface reports save errors rather than silently claiming
 success.
 
-## Publish the browser frontend and host the detector API
+## GitHub Pages browser mode
 
-GitHub Pages only serves static files; it cannot run Flask or load YOLO. The
-repository includes a Docker setup for running the API as a Hugging Face Docker
-Space. Create a **public Docker Space** named `vision-desk` on Hugging Face and
-choose a CPU hardware option. Keep the Space's generated `README.md`, since it
-contains the required Hugging Face metadata.
+The GitHub Pages site works without a Python server: open
+`https://irfanpalakkan7-art.github.io/FACE_SEARCH/`, allow camera access, and
+press **Start camera**. The first start downloads the browser vision runtime
+and the object/face models; allow that download to finish. Use a modern browser
+with internet access. Detection runs on-device after the downloads. Browser-only
+activity is not saved, and screenshots download to the visitor's device.
 
-From this project folder, clone the new Space repository into a separate
-subfolder and copy the app files to it:
+## Optional hosted Python API
 
-```powershell
-python -m pip install --upgrade huggingface_hub
-hf auth login
-git clone https://huggingface.co/spaces/YOUR-HF-USERNAME/vision-desk hf-space
-New-Item -ItemType Directory -Force .\hf-space\static
-Copy-Item web_app.py,main.py,Dockerfile,requirements-space.txt,index.html -Destination .\hf-space\
-Copy-Item .dockerignore -Destination .\hf-space\
-Copy-Item .\static\* -Destination .\hf-space\static -Recurse -Force
-Set-Location .\hf-space
-git add .
-git commit -m "Deploy webcam detector API"
-git push
-```
-
-Use a Hugging Face **write** token only in the `hf auth login` prompt. Never
-paste the token into source files or commit it.
-
-After the Hugging Face Space finishes building, open its **Settings** page and
-copy the Space's public `*.hf.space` application URL. In the original GitHub
-project, edit `static/app-config.js` and set the exact URL, without a trailing
-slash:
+For deployments that specifically need server-side Python inference, the
+repository also includes an optional Docker setup for Hugging Face Spaces.
+Create a public Docker Space, deploy the API files, then edit
+`static/app-config.js` to set the Space's public URL:
 
 ```javascript
 window.VISION_API_BASE = "https://YOUR-ACTUAL-SPACE-URL.hf.space";
 ```
 
-Commit and push that change to GitHub. GitHub Pages will then load the configured
-API. If the Space URL does not respond immediately, it may be waking from
-idle—wait briefly and retry. The API only allows the configured GitHub Pages
-origin by default; change `CORS_ALLOWED_ORIGINS` in the Space's Docker
-environment only if you intentionally use a different frontend origin.
-
-The public hosted demo disables server-side event logs, sound alerts, and
-screenshot storage. Screenshots are downloaded by the browser instead. Hosted
-requests are serialized through one inference worker; free CPU hosting can be
-slow or temporarily unavailable while the Space starts.
-
-### Hosted demo privacy
-
-When the frontend is connected to the Space, webcam frames leave the visitor's
-device and are sent to Hugging Face for inference. The app does not intentionally
-save uploaded frames, but the service provider controls its infrastructure and
-retention. Do not use the hosted public demo with sensitive footage or without
-the participants' consent. For local-only processing, use the local setup
-instructions above instead.
+Commit and push that configuration. In this optional API mode, camera frames
+leave the visitor's device and are sent to the configured service. Do not enable
+it for sensitive footage unless you understand the provider's handling and
+retention. The default GitHub Pages browser mode keeps frames on-device.
 
 ## Privacy and responsible use
 
 No face identity recognition or automatic screenshot recording is performed.
 Treat every result as an uncertain visual cue, not as proof of a person's
 identity, health, attention, intent, or conduct. Local mode processes frames on
-the user's computer; hosted mode transmits frames to the configured service as
-described above.
+the user's computer; GitHub Pages mode also runs directly in the visitor's
+browser. An optional hosted API sends frames to its configured service.

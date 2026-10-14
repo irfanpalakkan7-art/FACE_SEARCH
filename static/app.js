@@ -2,6 +2,7 @@
 
 const elements = {
   clock: document.getElementById("clock"),
+  modelName: document.getElementById("modelName"),
   modelState: document.getElementById("modelState"),
   modelDot: document.getElementById("modelDot"),
   optionalStatus: document.getElementById("optionalStatus"),
@@ -27,6 +28,7 @@ const elements = {
   personCount: document.getElementById("personCount"),
   phoneCount: document.getElementById("phoneCount"),
   bookCount: document.getElementById("bookCount"),
+  bookCaption: document.getElementById("bookCaption"),
   peopleCaption: document.getElementById("peopleCaption"),
   eventCount: document.getElementById("eventCount"),
   eventChips: document.getElementById("eventChips"),
@@ -54,6 +56,8 @@ const isGitHubPages = window.location.hostname.endsWith(".github.io");
 const isHuggingFaceSpace = window.location.hostname.endsWith(".hf.space");
 const configuredApiRoot = String(window.VISION_API_BASE || "").trim().replace(/\/+$/, "");
 const apiRoot = isFilePreview ? "" : configuredApiRoot || window.location.origin;
+const browserInferenceMode = (isGitHubPages || new URLSearchParams(window.location.search).get("browser-ai") === "1")
+  && !configuredApiRoot;
 const backendConfigured = !isGitHubPages || Boolean(configuredApiRoot);
 const remoteBackend = isHuggingFaceSpace || Boolean(configuredApiRoot && configuredApiRoot !== window.location.origin);
 const state = {
@@ -66,12 +70,43 @@ const state = {
   generation: 0,
   confidence: 0.35,
   latestImage: null,
+  objectDetector: null,
+  faceDetector: null,
+  modelLoad: null,
+  lastConfidence: null,
   frames: [],
   lastEventRefresh: 0,
   errorToastAt: 0,
 };
 
 function configureDeploymentCopy() {
+  if (browserInferenceMode) {
+    elements.privacyTitle.textContent = "Your camera stays yours.";
+    elements.privacyDescription.textContent =
+      "Detection runs in your browser. Camera frames are not uploaded to a server.";
+    elements.environmentLabel.innerHTML = "<i></i> ON-DEVICE AI";
+    elements.sessionMode.innerHTML = '<i></i> Browser session';
+    elements.modelName.textContent = "MediaPipe vision";
+    elements.bookCaption.textContent = "COCO model class";
+    elements.cameraDescription.textContent = "Live feed analyzed privately in your browser.";
+    elements.loggingDescription.textContent = "Session-only cues; nothing is uploaded";
+    elements.soundDescription.textContent = "Unavailable in browser-only mode";
+    elements.cameraPlaceholder.querySelector("strong").textContent = "Start on-device detection";
+    elements.cameraPlaceholder.querySelector("span").textContent =
+      "The AI models run in this browser; the camera feed stays on your device.";
+    elements.cameraPlaceholder.querySelector("small").textContent =
+      "The first start downloads the vision models. Camera permission is requested only after you press Start.";
+    elements.loggingSwitch.disabled = true;
+    elements.soundSwitch.disabled = true;
+    elements.downloadLog.classList.add("hidden");
+    elements.viewLogLink.classList.add("hidden");
+    elements.activityList.replaceChildren();
+    const empty = document.createElement("div");
+    empty.className = "activity-empty";
+    empty.textContent = "No server log in browser-only mode. Cues are displayed for this session only.";
+    elements.activityList.appendChild(empty);
+    return;
+  }
   if (!isGitHubPages && !remoteBackend) return;
   elements.privacyTitle.textContent = "Frames are sent to the hosted detector.";
   elements.privacyDescription.textContent =
@@ -138,6 +173,14 @@ async function apiRequest(url, options = {}) {
 }
 
 async function loadStatus() {
+  if (browserInferenceMode) {
+    elements.modelState.textContent = "Browser AI loads when you start";
+    elements.modelDot.classList.remove("error", "ready");
+    elements.optionalStatus.textContent = "Face and object detection run on this device";
+    setSwitch(elements.loggingSwitch, false);
+    setSwitch(elements.soundSwitch, false);
+    return;
+  }
   if (!backendConfigured) {
     showBackendSetupNotice();
     return;
@@ -224,7 +267,7 @@ function updateConfidenceDisplay() {
 
 async function startCamera() {
   if (state.running) return;
-  if (!backendConfigured) {
+  if (!backendConfigured && !browserInferenceMode) {
     showBackendSetupNotice();
     showToast("The hosted Python backend has not been connected yet.", true);
     return;
@@ -240,17 +283,28 @@ async function startCamera() {
   }
 
   elements.startButton.disabled = true;
-  elements.startButton.querySelector("span").textContent = "Requesting camera…";
+  elements.startButton.querySelector("span").textContent = browserInferenceMode
+    ? "Loading browser AI…"
+    : "Requesting camera…";
   try {
-    const backend = await apiRequest("/api/status");
-    state.backendAvailable = true;
-    elements.modelState.textContent = backend.model_ready
-      ? "Ready · YOLOv8 Nano"
-      : "Model unavailable · check terminal";
-    elements.modelDot.classList.toggle("ready", backend.model_ready);
-    elements.modelDot.classList.toggle("error", !backend.model_ready);
-    if (!backend.model_ready) {
-      throw new Error(`The local server is running, but YOLO is unavailable: ${backend.model_error || "model failed to load"}`);
+    if (browserInferenceMode) {
+      elements.modelState.textContent = "Loading browser vision models…";
+      await loadBrowserModels();
+      elements.modelName.textContent = "MediaPipe EfficientDet Lite0";
+      elements.modelState.textContent = "Ready · browser AI";
+      elements.modelDot.classList.remove("error");
+      elements.modelDot.classList.add("ready");
+    } else {
+      const backend = await apiRequest("/api/status");
+      state.backendAvailable = true;
+      elements.modelState.textContent = backend.model_ready
+        ? "Ready · YOLOv8 Nano"
+        : "Model unavailable · check terminal";
+      elements.modelDot.classList.toggle("ready", backend.model_ready);
+      elements.modelDot.classList.toggle("error", !backend.model_ready);
+      if (!backend.model_ready) {
+        throw new Error(`The local server is running, but YOLO is unavailable: ${backend.model_error || "model failed to load"}`);
+      }
     }
     state.stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
@@ -269,11 +323,13 @@ async function startCamera() {
     elements.annotatedFrame.classList.add("hidden");
     elements.annotatedFrame.removeAttribute("src");
     elements.cameraVideo.classList.remove("hidden");
-    elements.backendNotice.classList.remove("hidden");
-    elements.backendNoticeTitle.textContent = "Connecting to detector…";
-    elements.backendNoticeText.textContent = remoteBackend
-      ? "Camera frames are sent to the hosted Python detector for analysis."
-      : "Your camera is open. Waiting for the Python detection service.";
+    elements.backendNotice.classList.toggle("hidden", browserInferenceMode);
+    if (!browserInferenceMode) {
+      elements.backendNoticeTitle.textContent = "Connecting to detector…";
+      elements.backendNoticeText.textContent = remoteBackend
+        ? "Camera frames are sent to the hosted Python detector for analysis."
+        : "Your camera is open. Waiting for the Python detection service.";
+    }
     elements.frameResolution.classList.remove("hidden");
     elements.latencyPill.classList.remove("hidden");
     elements.startButton.classList.add("hidden");
@@ -284,9 +340,11 @@ async function startCamera() {
     const track = state.stream.getVideoTracks()[0];
     const settings = track?.getSettings() || {};
     elements.frameResolution.textContent = `${settings.width || 640} × ${settings.height || 480}`;
-    showToast(remoteBackend
-      ? "Camera connected. Frames are sent to the hosted detector."
-      : "Camera connected. Frames are analyzed locally.");
+    showToast(browserInferenceMode
+      ? "Camera connected. Frames are analyzed on this device."
+      : remoteBackend
+        ? "Camera connected. Frames are sent to the hosted detector."
+        : "Camera connected. Frames are analyzed locally.");
     runDetectionLoop(state.generation);
   } catch (error) {
     if (state.stream) {
@@ -299,7 +357,11 @@ async function startCamera() {
     } else if (error.name === "NotFoundError") {
       message = "No camera was found. Connect or enable a webcam, then try again.";
     }
-    if (!state.backendAvailable || error instanceof TypeError) {
+    if (browserInferenceMode) {
+      elements.modelState.textContent = "Browser AI could not start";
+      elements.modelDot.classList.add("error");
+      message = `Could not load the browser vision models: ${error.message}`;
+    } else if (!state.backendAvailable || error instanceof TypeError) {
       elements.modelState.textContent = "Python service is not responding";
       elements.modelDot.classList.add("error");
       message = remoteBackend
@@ -378,6 +440,24 @@ async function runDetectionLoop(generation) {
     canvas.width = Math.min(video.videoWidth || 640, 640);
     canvas.height = Math.round(canvas.width * ((video.videoHeight || 480) / (video.videoWidth || 640)));
     const context = canvas.getContext("2d", { alpha: false });
+    if (browserInferenceMode) {
+      await runBrowserDetection(video, canvas, context);
+      if (!state.running || generation !== state.generation) return;
+      state.backendAvailable = true;
+      state.hasAnnotatedFrame = true;
+      state.latestImage = canvas.toDataURL("image/jpeg", 0.82);
+      elements.annotatedFrame.src = state.latestImage;
+      elements.annotatedFrame.classList.remove("hidden");
+      elements.cameraVideo.classList.add("hidden");
+      elements.backendNotice.classList.add("hidden");
+      elements.screenshotButton.disabled = false;
+      elements.modelState.textContent = "Ready · browser AI";
+      elements.modelDot.classList.remove("error");
+      elements.modelDot.classList.add("ready");
+      setSessionConnected(true, true);
+      updateFrameRate();
+      return;
+    }
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.76));
     if (!blob) throw new Error("Could not capture a webcam frame.");
@@ -427,17 +507,23 @@ async function runDetectionLoop(generation) {
       state.backendAvailable = !backendUnavailable;
       elements.backendNotice.classList.remove("hidden");
       elements.backendNoticeTitle.textContent = backendUnavailable
-        ? remoteBackend ? "Hosted detector is unavailable" : "Python detector is offline"
+        ? browserInferenceMode
+          ? "Browser AI could not analyze this frame"
+          : remoteBackend ? "Hosted detector is unavailable" : "Python detector is offline"
         : "Could not analyze this frame";
       elements.backendNoticeText.textContent = backendUnavailable
-        ? remoteBackend
+        ? browserInferenceMode
+          ? error.message
+          : remoteBackend
           ? `The camera is working, but ${apiRoot} is not responding. The Hugging Face Space may be waking up; retry in a moment.`
           : `The browser camera is working, but the local API at ${apiRoot} is not responding. Restart start_web_app.bat, then retry.`
         : error.message;
       elements.cameraVideo.classList.remove("hidden");
       elements.annotatedFrame.classList.add("hidden");
       elements.modelState.textContent = backendUnavailable
-        ? "Python service is not responding"
+        ? browserInferenceMode
+          ? "Browser AI is not responding"
+          : "Python service is not responding"
         : "Detection error · see details";
       elements.modelDot.classList.remove("ready");
       elements.modelDot.classList.add("error");
@@ -445,7 +531,9 @@ async function runDetectionLoop(generation) {
       state.latestImage = null;
       elements.screenshotButton.disabled = true;
       showToast(backendUnavailable
-        ? remoteBackend
+        ? browserInferenceMode
+          ? error.message
+          : remoteBackend
           ? "Camera preview is live, but the hosted detector cannot be reached."
           : "Camera preview is live, but the detector API cannot be reached."
         : error.message, true);
@@ -459,10 +547,143 @@ async function runDetectionLoop(generation) {
 
 }
 
+async function loadBrowserModels() {
+  if (state.objectDetector && state.faceDetector) return;
+  if (state.modelLoad) return state.modelLoad;
+
+  state.modelLoad = (async () => {
+    const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/vision_bundle.mjs");
+    const fileset = await vision.FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm",
+    );
+    const tasks = [
+      vision.ObjectDetector.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-tasks/object_detector/efficientdet_lite0_uint8.tflite",
+        },
+        runningMode: "IMAGE",
+        scoreThreshold: state.confidence,
+        maxResults: 30,
+      }),
+      vision.FaceDetector.createFromOptions(fileset, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+        },
+        runningMode: "IMAGE",
+        minDetectionConfidence: Math.max(0.3, state.confidence),
+      }),
+    ];
+    try {
+      [state.objectDetector, state.faceDetector] = await Promise.all(tasks);
+    } catch (error) {
+      await Promise.allSettled(tasks);
+      throw new Error(`Could not initialize MediaPipe models. Check your internet connection and browser compatibility. ${error.message}`);
+    }
+  })();
+
+  try {
+    await state.modelLoad;
+  } catch (error) {
+    state.modelLoad = null;
+    throw error;
+  }
+}
+
+async function runBrowserDetection(video, canvas, context) {
+  await loadBrowserModels();
+  if (state.lastConfidence !== state.confidence) {
+    await state.objectDetector.setOptions({ scoreThreshold: state.confidence });
+    await state.faceDetector.setOptions({
+      minDetectionConfidence: Math.max(0.3, state.confidence),
+    });
+    state.lastConfidence = state.confidence;
+  }
+
+  context.save();
+  context.translate(canvas.width, 0);
+  context.scale(-1, 1);
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  context.restore();
+
+  const startedAt = performance.now();
+  const objects = state.objectDetector.detect(canvas).detections;
+  const faces = state.faceDetector.detect(canvas).detections;
+  const elapsed = performance.now() - startedAt;
+  const count = { person: 0, phone: 0, book: 0 };
+  const objectBoxes = [];
+
+  for (const detection of objects) {
+    const category = detection.categories[0];
+    if (!category) continue;
+    const label = category.categoryName.toLowerCase();
+    if (label === "person") count.person += 1;
+    if (label === "cell phone") count.phone += 1;
+    if (label === "book") count.book += 1;
+    const box = detection.boundingBox;
+    objectBoxes.push({ label, box });
+    drawDetectionBox(context, box, `${category.categoryName} ${Math.round(category.score * 100)}%`, "#f59e0b");
+  }
+
+  const faceBoxes = [];
+  for (const detection of faces) {
+    const box = detection.boundingBox;
+    faceBoxes.push(box);
+    drawDetectionBox(context, box, "Face", "#2ca482");
+  }
+
+  const events = [];
+  if (count.person > 1) events.push("Multiple people detected");
+  if (faceBoxes.some((face) => objectBoxes.some((object) =>
+    ["book", "cell phone"].includes(object.label) && boxesOverlap(face, object.box),
+  ))) {
+    events.push("Possible face obstruction");
+  }
+
+  elements.faceCount.textContent = String(faceBoxes.length);
+  elements.personCount.textContent = String(count.person);
+  elements.phoneCount.textContent = String(count.phone);
+  elements.bookCount.textContent = String(count.book);
+  elements.peopleCaption.textContent = count.person > 1
+    ? "Multiple people detected"
+    : "Browser AI detections";
+  elements.latencyText.textContent = `${Math.round(elapsed)} ms`;
+  renderEvents(events);
+}
+
+function drawDetectionBox(context, box, label, color) {
+  context.strokeStyle = color;
+  context.lineWidth = Math.max(2, context.canvas.width / 240);
+  context.strokeRect(box.originX, box.originY, box.width, box.height);
+  context.font = `600 ${Math.max(13, Math.round(context.canvas.width / 42))}px sans-serif`;
+  const textWidth = context.measureText(label).width;
+  const labelHeight = Math.max(20, Math.round(context.canvas.width / 32));
+  const textTop = Math.max(labelHeight, box.originY);
+  context.fillStyle = color;
+  context.fillRect(box.originX, textTop - labelHeight, textWidth + 12, labelHeight);
+  context.fillStyle = "#ffffff";
+  context.fillText(label, box.originX + 6, textTop - Math.round(labelHeight * 0.28));
+}
+
+function boxesOverlap(first, second) {
+  return first.originX < second.originX + second.width
+    && first.originX + first.width > second.originX
+    && first.originY < second.originY + second.height
+    && first.originY + first.height > second.originY;
+}
+
 async function retryBackend() {
   elements.retryBackendButton.disabled = true;
   elements.retryBackendButton.textContent = "Checking…";
   try {
+    if (browserInferenceMode) {
+      await loadBrowserModels();
+      elements.modelState.textContent = "Ready · browser AI";
+      elements.modelDot.classList.remove("error");
+      elements.modelDot.classList.add("ready");
+      elements.backendNotice.classList.add("hidden");
+      if (state.running) runDetectionLoop(state.generation);
+      return;
+    }
     const status = await apiRequest("/api/status");
     state.backendAvailable = true;
     if (!status.model_ready) {
@@ -527,7 +748,7 @@ function describeEvent(eventName) {
 }
 
 async function refreshEvents() {
-  if (remoteBackend) return;
+  if (remoteBackend || browserInferenceMode) return;
   if (isFilePreview) {
     elements.activityList.replaceChildren();
     const empty = document.createElement("div");
@@ -572,7 +793,7 @@ async function refreshEvents() {
 }
 
 async function setLogging() {
-  if (remoteBackend) {
+  if (remoteBackend || browserInferenceMode) {
     showToast("Event logging is disabled on the hosted public demo.", true);
     return;
   }
@@ -596,7 +817,7 @@ async function setLogging() {
 }
 
 async function setSound() {
-  if (remoteBackend) {
+  if (remoteBackend || browserInferenceMode) {
     showToast("Sound alerts are unavailable on the hosted demo.", true);
     return;
   }
@@ -632,7 +853,7 @@ async function saveScreenshot() {
     return;
   }
   elements.screenshotButton.disabled = true;
-  if (remoteBackend) {
+  if (remoteBackend || browserInferenceMode) {
     const link = document.createElement("a");
     link.href = state.latestImage;
     link.download = `vision-desk-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
@@ -674,6 +895,10 @@ async function updateConfidence() {
   const value = Number(elements.confidenceSlider.value);
   state.confidence = value / 100;
   updateConfidenceDisplay();
+  if (browserInferenceMode) {
+    state.lastConfidence = null;
+    return;
+  }
   window.clearTimeout(settingsTimer);
   settingsTimer = window.setTimeout(async () => {
     try {

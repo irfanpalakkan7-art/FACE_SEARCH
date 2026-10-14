@@ -34,7 +34,7 @@
         <span class="model-icon">
           <svg viewBox="0 0 24 24"><path d="M12 3 3.5 7.5v9L12 21l8.5-4.5v-9z"/><path d="m3.8 7.7 8.2 4.4 8.2-4.4M12 12.1V21"/></svg>
         </span>
-        <div><strong>YOLOv8 Nano</strong><span id="modelState">Checking model…</span></div>
+        <div><strong id="modelName">YOLOv8 Nano</strong><span id="modelState">Checking model…</span></div>
         <i id="modelDot" class="status-dot"></i>
       </div>
       <div class="optional-status" id="optionalStatus">Optional cues · checking availability</div>
@@ -69,7 +69,7 @@
           <div>
             <div class="eyebrow"><span class="eyebrow-line"></span> COMPUTER VISION WORKSPACE</div>
             <h1>See what your camera sees<span>.</span></h1>
-            <p class="page-subtitle">Live computer vision with a Python detector running locally or in the cloud.</p>
+            <p class="page-subtitle">A private, real-time look at your world — powered by AI on your device.</p>
           </div>
           <div class="session-status" id="sessionStatus"><i></i><span>Camera disconnected</span></div>
         </section>
@@ -93,7 +93,7 @@
           <article class="metric-card">
             <div class="metric-heading"><span>Books</span><span class="metric-symbol amber">▤</span></div>
             <div class="metric-value" id="bookCount">—</div>
-            <div class="metric-caption">Not in default YOLOv8 classes</div>
+            <div class="metric-caption" id="bookCaption">Not in default YOLOv8 classes</div>
           </article>
         </section>
 
@@ -231,7 +231,7 @@
 
         <footer class="disclaimer">
           <span class="disclaimer-icon">i</span>
-          <p><strong>Demo only:</strong> Detectors can be wrong. Box overlap does not prove obstruction; eye closure is not proof of sleep or drowsiness; posture cues are approximate. YOLOv8 Nano does not include a book class.</p>
+          <p><strong>Demo only:</strong> Detectors can be wrong. Box overlap does not prove obstruction; eye closure is not proof of sleep or drowsiness; posture cues are approximate. Supported object classes depend on the detector.</p>
         </footer>
       </div>
     </main>
@@ -242,6 +242,6 @@
     <span>This page was opened as a file. Double-click <code>start_web_app.bat</code>, then open <code>http://127.0.0.1:5000</code>.</span>
   </div>
   <script src="static/app-config.js?v=1" defer></script>
-  <script src="static/app.js?v=6" defer></script>
+  <script src="static/app.js?v=8" defer></script>
 </body>
 </html>

@@ -42,6 +42,7 @@ const elements = {
   privacyDescription: document.getElementById("privacyDescription"),
   environmentLabel: document.getElementById("environmentLabel"),
   sessionMode: document.getElementById("sessionMode"),
+  cameraDescription: document.getElementById("cameraDescription"),
   downloadLog: document.getElementById("downloadLog"),
   viewLogLink: document.getElementById("viewLogLink"),
   loggingDescription: document.getElementById("loggingDescription"),
@@ -77,6 +78,7 @@ function configureDeploymentCopy() {
     "Camera frames are transmitted to the configured Python service for analysis. Do not use this demo with sensitive footage.";
   elements.environmentLabel.innerHTML = "<i></i> HOSTED DETECTOR";
   elements.sessionMode.innerHTML = '<i></i> Cloud session';
+  elements.cameraDescription.textContent = "Annotated feed from the hosted detector.";
   elements.loggingDescription.textContent = "Disabled in public hosted mode";
   elements.soundDescription.textContent = "Disabled in public hosted mode";
   elements.cameraPlaceholder.querySelector("strong").textContent = "Start a hosted detection session";

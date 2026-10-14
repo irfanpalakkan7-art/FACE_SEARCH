@@ -177,9 +177,9 @@ subfolder and copy the app files to it:
 python -m pip install --upgrade huggingface_hub
 hf auth login
 git clone https://huggingface.co/spaces/YOUR-HF-USERNAME/vision-desk hf-space
+New-Item -ItemType Directory -Force .\hf-space\static
 Copy-Item web_app.py,main.py,Dockerfile,requirements-space.txt,index.html -Destination .\hf-space\
 Copy-Item .dockerignore -Destination .\hf-space\
-New-Item -ItemType Directory -Force .\hf-space\static
 Copy-Item .\static\* -Destination .\hf-space\static -Recurse -Force
 Set-Location .\hf-space
 git add .

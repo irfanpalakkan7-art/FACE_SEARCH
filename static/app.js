@@ -38,10 +38,23 @@ const elements = {
   refreshEvents: document.getElementById("refreshEvents"),
   toastRegion: document.getElementById("toastRegion"),
   fileModeBanner: document.getElementById("fileModeBanner"),
+  privacyTitle: document.getElementById("privacyTitle"),
+  privacyDescription: document.getElementById("privacyDescription"),
+  environmentLabel: document.getElementById("environmentLabel"),
+  sessionMode: document.getElementById("sessionMode"),
+  downloadLog: document.getElementById("downloadLog"),
+  viewLogLink: document.getElementById("viewLogLink"),
+  loggingDescription: document.getElementById("loggingDescription"),
+  soundDescription: document.getElementById("soundDescription"),
 };
 
 const isFilePreview = window.location.protocol === "file:";
-const apiRoot = isFilePreview ? "" : window.location.origin;
+const isGitHubPages = window.location.hostname.endsWith(".github.io");
+const isHuggingFaceSpace = window.location.hostname.endsWith(".hf.space");
+const configuredApiRoot = String(window.VISION_API_BASE || "").trim().replace(/\/+$/, "");
+const apiRoot = isFilePreview ? "" : configuredApiRoot || window.location.origin;
+const backendConfigured = !isGitHubPages || Boolean(configuredApiRoot);
+const remoteBackend = isHuggingFaceSpace || Boolean(configuredApiRoot && configuredApiRoot !== window.location.origin);
 const state = {
   stream: null,
   running: false,
@@ -56,6 +69,41 @@ const state = {
   lastEventRefresh: 0,
   errorToastAt: 0,
 };
+
+function configureDeploymentCopy() {
+  if (!isGitHubPages && !remoteBackend) return;
+  elements.privacyTitle.textContent = "Frames are sent to the hosted detector.";
+  elements.privacyDescription.textContent =
+    "Camera frames are transmitted to the configured Python service for analysis. Do not use this demo with sensitive footage.";
+  elements.environmentLabel.innerHTML = "<i></i> HOSTED DETECTOR";
+  elements.sessionMode.innerHTML = '<i></i> Cloud session';
+  elements.loggingDescription.textContent = "Disabled in public hosted mode";
+  elements.soundDescription.textContent = "Disabled in public hosted mode";
+  elements.cameraPlaceholder.querySelector("strong").textContent = "Start a hosted detection session";
+  elements.cameraPlaceholder.querySelector("span").textContent =
+    "Camera frames are sent to Hugging Face for analysis.";
+  elements.cameraPlaceholder.querySelector("small").textContent =
+    "Do not use with sensitive footage; stop the session to release your camera.";
+  elements.loggingSwitch.disabled = true;
+  elements.soundSwitch.disabled = true;
+  elements.downloadLog.classList.add("hidden");
+  elements.viewLogLink.classList.add("hidden");
+  elements.activityList.replaceChildren();
+  const empty = document.createElement("div");
+  empty.className = "activity-empty";
+  empty.textContent = "Hosted demo keeps event logs off to protect visitors' privacy.";
+  elements.activityList.appendChild(empty);
+}
+
+function showBackendSetupNotice() {
+  elements.modelState.textContent = "Hosted backend not connected";
+  elements.modelDot.classList.add("error");
+  elements.optionalStatus.textContent = "Connect the Python detector to enable live detection";
+  elements.fileModeBanner.querySelector("strong").textContent = "Connect the hosted Python detector";
+  elements.fileModeBanner.querySelector("span").textContent =
+    "GitHub Pages only hosts this website. Set the Hugging Face Space URL in static/app-config.js, then push the change to GitHub.";
+  elements.fileModeBanner.classList.remove("hidden");
+}
 
 function showToast(message, isError = false) {
   const toast = document.createElement("div");
@@ -88,6 +136,10 @@ async function apiRequest(url, options = {}) {
 }
 
 async function loadStatus() {
+  if (!backendConfigured) {
+    showBackendSetupNotice();
+    return;
+  }
   if (isFilePreview) {
     elements.modelState.textContent = "Start local Python service";
     elements.modelDot.classList.add("error");
@@ -99,6 +151,17 @@ async function loadStatus() {
   try {
     const status = await apiRequest("/api/status");
     state.backendAvailable = true;
+    if (status.public_demo) {
+      elements.loggingSwitch.disabled = true;
+      elements.soundSwitch.disabled = true;
+      elements.downloadLog.classList.add("hidden");
+      elements.viewLogLink.classList.add("hidden");
+      elements.activityList.replaceChildren();
+      const empty = document.createElement("div");
+      empty.className = "activity-empty";
+      empty.textContent = "Hosted demo keeps event logs off to protect visitors' privacy.";
+      elements.activityList.appendChild(empty);
+    }
     elements.modelState.textContent = status.model_ready
       ? "Ready · YOLOv8 Nano"
       : "Model unavailable · check terminal";
@@ -123,9 +186,12 @@ async function loadStatus() {
     elements.modelState.textContent = "Python service is not responding";
     elements.modelDot.classList.add("error");
     elements.optionalStatus.textContent = "Start the Python service to enable detection";
-    elements.fileModeBanner.querySelector("strong").textContent = "Local detection service is not responding";
-    elements.fileModeBanner.querySelector("span").textContent =
-      "Double-click start_web_app.bat, then open http://127.0.0.1:5000. Keep its terminal window open.";
+    elements.fileModeBanner.querySelector("strong").textContent = remoteBackend
+      ? "Hosted detector is waking up or unavailable"
+      : "Local detection service is not responding";
+    elements.fileModeBanner.querySelector("span").textContent = remoteBackend
+      ? `Could not reach ${apiRoot}. Hugging Face may be starting the Space; wait a moment, then retry.`
+      : "Double-click start_web_app.bat, then open http://127.0.0.1:5000. Keep its terminal window open.";
     elements.fileModeBanner.classList.remove("hidden");
     showToast(`Cannot reach the detector service: ${error.message}`, true);
   }
@@ -156,6 +222,11 @@ function updateConfidenceDisplay() {
 
 async function startCamera() {
   if (state.running) return;
+  if (!backendConfigured) {
+    showBackendSetupNotice();
+    showToast("The hosted Python backend has not been connected yet.", true);
+    return;
+  }
   if (isFilePreview) {
     elements.fileModeBanner.classList.remove("hidden");
     showToast("Open start_web_app.bat to start the local detection service.", true);
@@ -198,7 +269,9 @@ async function startCamera() {
     elements.cameraVideo.classList.remove("hidden");
     elements.backendNotice.classList.remove("hidden");
     elements.backendNoticeTitle.textContent = "Connecting to detector…";
-    elements.backendNoticeText.textContent = "Your camera is open. Waiting for the Python detection service.";
+    elements.backendNoticeText.textContent = remoteBackend
+      ? "Camera frames are sent to the hosted Python detector for analysis."
+      : "Your camera is open. Waiting for the Python detection service.";
     elements.frameResolution.classList.remove("hidden");
     elements.latencyPill.classList.remove("hidden");
     elements.startButton.classList.add("hidden");
@@ -209,7 +282,9 @@ async function startCamera() {
     const track = state.stream.getVideoTracks()[0];
     const settings = track?.getSettings() || {};
     elements.frameResolution.textContent = `${settings.width || 640} × ${settings.height || 480}`;
-    showToast("Camera connected. Frames are analyzed locally.");
+    showToast(remoteBackend
+      ? "Camera connected. Frames are sent to the hosted detector."
+      : "Camera connected. Frames are analyzed locally.");
     runDetectionLoop(state.generation);
   } catch (error) {
     if (state.stream) {
@@ -225,7 +300,9 @@ async function startCamera() {
     if (!state.backendAvailable || error instanceof TypeError) {
       elements.modelState.textContent = "Python service is not responding";
       elements.modelDot.classList.add("error");
-      message = `The detector server at ${apiRoot || "this page's server"} is unreachable. Run start_web_app.bat and open http://127.0.0.1:5000.`;
+      message = remoteBackend
+        ? `The hosted detector at ${apiRoot} is unavailable. It may be waking up; retry shortly.`
+        : `The detector server at ${apiRoot || "this page's server"} is unreachable. Run start_web_app.bat and open http://127.0.0.1:5000.`;
     }
     showToast(message, true);
   } finally {
@@ -256,7 +333,7 @@ function stopCamera() {
   elements.pauseButton.classList.add("hidden");
   elements.screenshotButton.disabled = true;
   elements.fpsValue.textContent = "--";
-  elements.latestImage = null;
+  state.latestImage = null;
   state.hasAnnotatedFrame = false;
   state.frames = [];
   resetMetrics();
@@ -305,6 +382,7 @@ async function runDetectionLoop(generation) {
 
     const form = new FormData();
     form.append("frame", blob, "webcam.jpg");
+    form.append("confidence", String(state.confidence));
     const result = await apiRequest("/api/detect", { method: "POST", body: form });
     if (!state.running || generation !== state.generation) return;
     if (typeof result.image !== "string" || !result.image.startsWith("/9j/")) {
@@ -347,10 +425,12 @@ async function runDetectionLoop(generation) {
       state.backendAvailable = !backendUnavailable;
       elements.backendNotice.classList.remove("hidden");
       elements.backendNoticeTitle.textContent = backendUnavailable
-        ? "Python detector is offline"
+        ? remoteBackend ? "Hosted detector is unavailable" : "Python detector is offline"
         : "Could not analyze this frame";
       elements.backendNoticeText.textContent = backendUnavailable
-        ? `The browser camera is working, but the local API at ${apiRoot} is not responding. Restart start_web_app.bat, then retry.`
+        ? remoteBackend
+          ? `The camera is working, but ${apiRoot} is not responding. The Hugging Face Space may be waking up; retry in a moment.`
+          : `The browser camera is working, but the local API at ${apiRoot} is not responding. Restart start_web_app.bat, then retry.`
         : error.message;
       elements.cameraVideo.classList.remove("hidden");
       elements.annotatedFrame.classList.add("hidden");
@@ -363,7 +443,9 @@ async function runDetectionLoop(generation) {
       state.latestImage = null;
       elements.screenshotButton.disabled = true;
       showToast(backendUnavailable
-        ? "Camera preview is live, but the detector API cannot be reached."
+        ? remoteBackend
+          ? "Camera preview is live, but the hosted detector cannot be reached."
+          : "Camera preview is live, but the detector API cannot be reached."
         : error.message, true);
     }
   } finally {
@@ -443,6 +525,7 @@ function describeEvent(eventName) {
 }
 
 async function refreshEvents() {
+  if (remoteBackend) return;
   if (isFilePreview) {
     elements.activityList.replaceChildren();
     const empty = document.createElement("div");
@@ -487,6 +570,10 @@ async function refreshEvents() {
 }
 
 async function setLogging() {
+  if (remoteBackend) {
+    showToast("Event logging is disabled on the hosted public demo.", true);
+    return;
+  }
   if (isFilePreview) {
     showToast("Run start_web_app.bat to change event logging.", true);
     return;
@@ -507,6 +594,10 @@ async function setLogging() {
 }
 
 async function setSound() {
+  if (remoteBackend) {
+    showToast("Sound alerts are unavailable on the hosted demo.", true);
+    return;
+  }
   if (isFilePreview) {
     showToast("Run start_web_app.bat to change detection settings.", true);
     return;
@@ -539,6 +630,15 @@ async function saveScreenshot() {
     return;
   }
   elements.screenshotButton.disabled = true;
+  if (remoteBackend) {
+    const link = document.createElement("a");
+    link.href = state.latestImage;
+    link.download = `vision-desk-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`;
+    link.click();
+    showToast("Annotated frame downloaded to this device.");
+    elements.screenshotButton.disabled = !state.running;
+    return;
+  }
   try {
     const form = new FormData();
     form.append("frame", createImageBlob(state.latestImage), "annotated-frame.jpg");
@@ -621,6 +721,7 @@ window.addEventListener("keydown", (event) => {
 });
 
 updateClock();
+configureDeploymentCopy();
 window.setInterval(updateClock, 1000);
 loadStatus();
 refreshEvents();

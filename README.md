@@ -1,9 +1,9 @@
 # AI Webcam Detector
 
-A local-only computer-vision demo with a clean browser dashboard. The browser
-accesses your webcam, sends frames to the Python app on your own computer, and
-shows the annotated results. The application binds only to `127.0.0.1`; it does
-not upload frames to a cloud service.
+A computer-vision demo with a clean browser dashboard. Run it locally for
+on-device inference, or host its Python API separately and connect the static
+GitHub Pages frontend. In hosted mode, webcam frames are sent to the configured
+Python service for inference.
 
 ## What it can do
 
@@ -54,7 +54,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 In VS Code, choose the project environment via **Ctrl+Shift+P → Python: Select
 Interpreter → `.venv311\Scripts\python.exe`**.
 
-## Run the browser dashboard (easiest way)
+## Run the browser dashboard locally
 
 In File Explorer, open the project folder and double-click
 `start_web_app.bat`. It starts the Python server and opens the website in your
@@ -73,6 +73,10 @@ The app opens **http://127.0.0.1:5000** in your browser. Keep the terminal open
 while using the dashboard. Press **Ctrl+C** in that terminal to stop the local
 web server. Press **Start camera** in the page and allow camera access when
 asked. Camera access is requested only after pressing that button.
+
+The local app binds only to `127.0.0.1`; camera frames stay on this computer.
+The hosted public demo uses a separate API and does not provide this local-only
+privacy guarantee.
 
 Opening `index.html` directly shows a styled preview, but browser security means
 it cannot connect to the local Python detection API. Use `start_web_app.bat`
@@ -158,11 +162,67 @@ Check that this project folder and its `logs` and `screenshots` subfolders are
 writable. The web interface reports save errors rather than silently claiming
 success.
 
+## Publish the browser frontend and host the detector API
+
+GitHub Pages only serves static files; it cannot run Flask or load YOLO. The
+repository includes a Docker setup for running the API as a Hugging Face Docker
+Space. Create a **public Docker Space** named `vision-desk` on Hugging Face and
+choose a CPU hardware option. Keep the Space's generated `README.md`, since it
+contains the required Hugging Face metadata.
+
+From this project folder, clone the new Space repository into a separate
+subfolder and copy the app files to it:
+
+```powershell
+python -m pip install --upgrade huggingface_hub
+hf auth login
+git clone https://huggingface.co/spaces/YOUR-HF-USERNAME/vision-desk hf-space
+Copy-Item web_app.py,main.py,Dockerfile,requirements-space.txt,index.html -Destination .\hf-space\
+Copy-Item .dockerignore -Destination .\hf-space\
+New-Item -ItemType Directory -Force .\hf-space\static
+Copy-Item .\static\* -Destination .\hf-space\static -Recurse -Force
+Set-Location .\hf-space
+git add .
+git commit -m "Deploy webcam detector API"
+git push
+```
+
+Use a Hugging Face **write** token only in the `hf auth login` prompt. Never
+paste the token into source files or commit it.
+
+After the Hugging Face Space finishes building, open its **Settings** page and
+copy the Space's public `*.hf.space` application URL. In the original GitHub
+project, edit `static/app-config.js` and set the exact URL, without a trailing
+slash:
+
+```javascript
+window.VISION_API_BASE = "https://YOUR-ACTUAL-SPACE-URL.hf.space";
+```
+
+Commit and push that change to GitHub. GitHub Pages will then load the configured
+API. If the Space URL does not respond immediately, it may be waking from
+idle—wait briefly and retry. The API only allows the configured GitHub Pages
+origin by default; change `CORS_ALLOWED_ORIGINS` in the Space's Docker
+environment only if you intentionally use a different frontend origin.
+
+The public hosted demo disables server-side event logs, sound alerts, and
+screenshot storage. Screenshots are downloaded by the browser instead. Hosted
+requests are serialized through one inference worker; free CPU hosting can be
+slow or temporarily unavailable while the Space starts.
+
+### Hosted demo privacy
+
+When the frontend is connected to the Space, webcam frames leave the visitor's
+device and are sent to Hugging Face for inference. The app does not intentionally
+save uploaded frames, but the service provider controls its infrastructure and
+retention. Do not use the hosted public demo with sensitive footage or without
+the participants' consent. For local-only processing, use the local setup
+instructions above instead.
+
 ## Privacy and responsible use
 
-The website is intended for local demonstrations. The server listens only on
-the local computer (`127.0.0.1`). Webcam frames are processed locally and are
-not transmitted to an external service. No face identity recognition or
-automatic screenshot recording is performed. Treat every result as an
-uncertain visual cue, not as proof of a person's identity, health, attention,
-intent, or conduct.
+No face identity recognition or automatic screenshot recording is performed.
+Treat every result as an uncertain visual cue, not as proof of a person's
+identity, health, attention, intent, or conduct. Local mode processes frames on
+the user's computer; hosted mode transmits frames to the configured service as
+described above.
